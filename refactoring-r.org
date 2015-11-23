@@ -1,0 +1,1021 @@
+#+TITLE: 모듈패턴을 이용한 적합/예측 코드 리펙토링
+#+LATEX_CMD: xelatex
+#+LaTeX_HEADER: \usepackage{kotex}
+#+LaTeX_HEADER: \usepackage{a4wide}
+#+OPTIONS: num:t toc:nil ^:nil ':t
+
+#+BEGIN_ABSTRACT
+ 직업적으로 코드를 작성하는 사람들은 일종에 정리벽이 있습니다. 그들은 설령 지금
+작업하는 책상은 엉망진창일 지언정 코드는 깨끗한 들여쓰기에 중복없이 깔끔한
+상태여야 직성이 풀립니다. 물론 잘 구조화된 코드는 이러한 개인적인 심미적 취향과
+별개로 의도를 분리한 코드는 읽기쉽고, 변수의 영역(Scope)을 명확하게 구분하면
+구조적으로 서로 영향을 받는 영역이 작아지기 때문에 버그가 발생할 가능성을
+줄여주고, 만약에 발생을 해도 문제를 해결하기 쉽게 만들어줍니다. 또 잘 조직화된
+코드는 반복적으로 재사용할때 훨씬 빛을 발합니다.\\
+
+이 글은 개인적으로 통계학을 전공한 분과 협업하는 과정에서 전달받은 코드를 R의
+여러가지 기법들을 활용해서 손쉽게 재사용할 수 있는 형태로 개선시킨 과정을
+개인적인 기록을 위해서 정리한 내용입니다.
+#+END_ABSTRACT
+
+#+LATEX: \tableofcontents
+#+LATEX: \listoftables
+#+LATEX: \listoffigures
+
+* Goal
+  - 우리는 약 2만건의 의류대여 정보를 가지고 있습니다. 의류 대여정보에는
+    대여자의 실측 치수와 옷의 실측 치수가 기록되어있습니다.
+  - 우리는 이 정보를 이용해서 새로운 사용자의 실측 치수를 넣었을때 그 사람에게
+    가장 적합한 옷을 찾고 싶습니다(가장 적당한 옷의 치수를 알고 싶습니다)
+  - 필요한 예측의 결과는 남성, 여성 각각에 대한 상의, 하의 4가지 입니다.
+  - 선행 분석을 통해 각각의 예측결과에 영향을 주는 2가지의 신체 치수가
+    파악되어있습니다. 
+* Before
+  제공받은 코드는 RandomForest를 이용해서 각각의 예측에 대해서 모델을 적합
+  시킨뒤 새로운 치수에 대한 예측을 하는 코드로 작성되어있었습니다.
+** 전처리와 적합
+   #+BEGIN_SRC R
+     # 전처리
+     jacket_m<-query[(query$is_bestfit==1)&(query$clothes_category=="jacket")&(query$gender=="male"),]
+     jacket_m$height<-as.numeric(jacket_m$height)
+     jacket_m$weight<-as.numeric(jacket_m$weight)
+     jacket_m$bust<-as.numeric(jacket_m$bust)
+     jacket_m$waist<-as.numeric(jacket_m$waist)
+     jacket_m$topbelly<-as.numeric(jacket_m$topbelly)
+     jacket_m$arm<-as.numeric(jacket_m$arm)
+
+     # 파생변수 생성
+     jacket_m$BMI<-jacket_m$weight/(jacket_m$height/100)^2    
+     jacket_m$BBI<-jacket_m$height-jacket_m$weight-jacket_m$bust
+     jacket_m$waist_height_ratio<-jacket_m$waist/jacket_m$height
+     jacket_m$Ponderal_index<-jacket_m$weight/(jacket_m$height/100)^3
+     jacket_m$BIA<-(1.1*jacket_m$weight)-(128*jacket_m$weight^2/jacket_m$height^2)
+
+     # 랜덤포레스트 적합
+     m_bust_rf<-randomForest(clothes_bust~height+weight+bust+waist+topbelly+BMI+BBI+waist_height_ratio+BIA,data=jacket_m[jacket_m$ind==1,],importance=T)
+     m_topbelly_rf<-randomForest(clothes_topbelly~bust+weight+waist+topbelly+Ponderal_index+BIA,data=jacket_m[jacket_m$ind==1,],importance=T)
+
+	 # ...
+     # 같은 방식으로 남자 pants, 여성 jacket, 여성 skirt 에 대한 코드가 이어짐
+	 # ...
+   #+END_SRC
+
+   남성,여성 각각의 상의, 하의 총 4가지 경우에 대해 위와같은 코드가
+   작성되어있었습니다. 코드를 보면 먼저 학습시킬 자료에 대한 간단한 전처리를
+   진행한 뒤, 파생변수들을 만들고 예측할 변수(각 경우의 수마다 2개)마다
+   randomForest 모델을 적합시킵니다. 이때 각각의 변수마다 설명변수(feature)는
+   모두다 조금씩 다릅니다.
+** 예측
+   #+BEGIN_SRC R
+     jacket_m_size<-function(height,weight,bust,waist,topbelly,thigh,arm,leg){
+       jacket_m[dim(jacket_m)[1]+1,]<-0
+       jacket_m$height[dim(jacket_m)[1]]<-height
+       jacket_m$weight[dim(jacket_m)[1]]<-weight
+       jacket_m$bust[dim(jacket_m)[1]]<-bust
+       jacket_m$waist[dim(jacket_m)[1]]<-waist
+       jacket_m$topbelly[dim(jacket_m)[1]]<-topbelly
+       jacket_m$thigh[dim(jacket_m)[1]]<-thigh
+       jacket_m$arm[dim(jacket_m)[1]]<-arm
+       jacket_m$leg[dim(jacket_m)[1]]<-leg
+       jacket_m$BMI[dim(jacket_m)[1]]<-weight/(height/100)^2
+       jacket_m$BBI[dim(jacket_m)[1]]<-height-weight-bust
+       jacket_m$waist_height_ratio[dim(jacket_m)[1]]<-waist/height
+       jacket_m$Ponderal_index[dim(jacket_m)[1]]<-weight/(height/100)^3
+       jacket_m$BIA[dim(jacket_m)[1]]<-(1.1*weight)-(128*weight^2/height^2)
+       jacket_m$ind[dim(jacket_m)[1]]<-2
+
+       pred_bust<-predict(m_bust_rf,jacket_m[dim(jacket_m)[1],])
+       pred_topbelly<-predict(m_topbelly_rf,jacket_m[dim(jacket_m)[1],])
+
+       result<-data.frame(cbind(pred_bust,pred_topbelly))
+       colnames(result)<-c("pred_bust","pred_topbelly")
+
+       return(result)
+     }
+
+	 # ...
+	 # 역시 같은 방식으로 pants_m_size, jacket_f_size, skirt_f_size 계속됨
+	 # ...
+   #+END_SRC
+
+   작성된 위 함수를 실행시킨 결과입니다.
+
+   #+BEGIN_EXAMPLE
+     > jacket_m_size(183,82,102,88,85,61,64,105)
+         pred_bust pred_topbelly
+     187  102.0371      93.84677
+
+     > jacket_m_size(175,68,92,83,80,54,62,99)
+         pred_bust pred_topbelly
+     187  98.14482      89.25981
+   #+END_EXAMPLE
+
+   즉 신체치수가 183,82,102,88,85,61,64,105 인 사람은 가슴이 102.0371,
+   윗배사이즈가 93.864677인 자켓이 가장 적합할것이라는 예측입니다. 
+
+   코드는 함수형태로 작성되어있고, 전달된 인자를 제네릭함수인 ~predict~ 를
+   통해서 예측값을 가지고 옵니다. 마찬가지로 남성,여성 각각 상의,하의에 대응하는
+   함수코드가 존재합니다.
+* 문제점
+  기존 코드는 우리가 원하는 결과를 주고있지만, 구조적으로 몇가지 아쉬운점이
+  있었습니다. 
+
+  1. 중복된 코드가 너무 많이 존재함 : 완전하게 동일하지는 않지만 거의 유사한
+     코드가 8가지 경우의 수 각각에 대해서 존재하기 때문에 전체적으로 중복된
+     코드가 너무 많습니다.
+  2. 변수의 사용이 전역적임 : 일부 함수로 조직화 되어있는 코드조차도 각종 변수에
+     전역적으로 접근하기떄문에 일부의 코드를 독립적으로 수행하기 어려움
+  3. 코드의 유연성이 떨어짐 : randomForest 적합시점에 분류(Y)에 설명변수는 이후
+     추가적인 분석에 따라 변경될 여지가 있지만 수식(formula)가 하드코딩되어있음
+  4. 가독성 : 길고 중복된 코드가 많으며 변수가 전역적으로 사용된 코드는 읽고
+     한눈에 그 구조를 파악하기 어려움
+
+  따라서 기존 코드의 동작을 그대로 유지하면서, 위 문제를 개선하는 작업들을
+  진행해봤습니다. 
+* After
+** 전처리
+
+   전처리는 주로 CSV로 읽어드린 데이터 프레임에 값들을 정리하고, 파생변수를
+   생성하는 비교적 간단한 작업입니다.\\
+
+   R로 어떤 작업을 할때 ~data.frame~ 은 필수적이고 강력한 자료구조입니다. 하지만
+   기본 data.frame의 문법은 표현력에서 아쉬운점들이 많습니다. 많은 분들이
+   추천하시는 ~data.table~ 은 data.frame의 이런 아쉬운 표현력 문제를 깔끔하게
+   해결해주며 data.frame과 호환성을 유지하며, 성능이 뛰어나고, 부수적인 강력한
+   기능들도 제공하는 멋진 모듈입니다. 개인적으로 10분이상 들여다 봐야할 자료는
+   정신건강을 위해서 읽어오는 부분에서 귀찮더라도 꼭 data.table로 처리하려고
+   노력합니다. 
+
+   #+BEGIN_EXAMPLE
+   
+   #+END_EXAMPLE
+
+** 적합모델
+   :PROPERTIES:
+   :CUSTOM_ID: sec:fit-model
+   :END:
+   우리는 남성,여성 각각의 상의, 하의에 대해서 각각 2개의 모델을 가지고
+   있습니다. 위에서 살펴봤던 모델 적합코드중 하나를 보기 좋게 정리해 보면 아래와
+   같습니다. 
+
+   #+BEGIN_SRC R
+     # male jacket - bust
+     randomForest( clothes_bust
+                  ~ height
+                  + weight
+                  + bust
+                  + waist
+                  + topbelly
+                  + BMI
+                  + BBI
+                  + waist_height_ratio
+                  + BIA
+                 ,data=data[ is_bestfit == T
+                            & clothes_category == 'jacket'
+                            & gender == 'male'
+                            & ind == T ]
+                 ,importance=T
+                 ,na.action=na.omit )
+   #+END_SRC
+
+   이 randomForest 함수는 다음과 같이 구성되어있습니다.
+
+   - 첫번째 인자로 분류(Y)와 설명변수(feature)로 구성된 formula를 받습니다. 이
+     수식의 구성은 각각의 모델마다 모두 다 다릅니다.
+   - 두번째 인자는 ~data~ 로 모델에 적합시킬 자료입니다. 우리는 data.table
+     형식의 ~data~ 변수에 모든 자료를 저장해뒀으며 ~clothes_category~,
+     ~gender~ 가 각각의 모델마다 달라집니다.
+   - ~importance~ 와 NULL값 처리에 대한 ~na.action~ 인자는 모든 모델에서
+     동일합니다.
+
+   정리하면, 각각의 모델마다 달라지는건 수식을 구성하는 분류와 설명변수, 그리고
+   ~clothes_category~, ~gender~ 이며 기존 코드에서 이 부분을 제외하면 모델을
+   적합시키는 코드는 모두 같다고 볼 수 있습니다. 아직 이 부분을 어떻게
+   처리해야할지 아이디어는 없지만 일단 코드에서 중복을 제거한 순수한 *차이*
+   부분을 아래와 같이 [[https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=3&cad=rja&uact=8&ved=0ahUKEwiZhvXEsKTJAhVn5KYKHc1OA-wQFggmMAI&url=http%3A%2F%2Fvita.had.co.nz%2Fpapers%2Ftidy-data.pdf&usg=AFQjCNFUAQr-w_87XpPhfEDoDYQw5-G5zg&sig2=2aigtTkSDGkpyYs6Fj726g][Tidy Data]] 형식의 표로 정리해둡니다.
+
+   |--------+------------------+----------+--------------------|
+   | gender | clothes_category | guess    | parameter          |
+   |--------+------------------+----------+--------------------|
+   | male   | jacket           | bust     | height             |
+   | male   | jacket           | bust     | weight             |
+   | male   | jacket           | bust     | bust               |
+   | male   | jacket           | bust     | waist              |
+   | male   | jacket           | bust     | topbelly           |
+   | male   | jacket           | bust     | BMI                |
+   | male   | jacket           | bust     | BBI                |
+   | male   | jacket           | bust     | waist_height_ratio |
+   | male   | jacket           | bust     | BIA                |
+   |--------+------------------+----------+--------------------|
+   | male   | jacket           | topbelly | bust               |
+   | male   | jacket           | topbelly | weight             |
+   | male   | jacket           | topbelly | waist              |
+   | male   | jacket           | topbelly | topbelly           |
+   | male   | jacket           | topbelly | Ponderal_index     |
+   | male   | jacket           | topbelly | BIA                |
+   |--------+------------------+----------+--------------------|
+   | male   | pants            | thight   | weight             |
+   | male   | pants            | thight   | waist              |
+   | male   | pants            | thight   | topbelly           |
+   | male   | pants            | thight   | thigh              |
+   | male   | pants            | thight   | BMI                |
+   | male   | pants            | thight   | BBI                |
+   | male   | pants            | thight   | BIA                |
+   | male   | pants            | thight   | waist_height_ratio |
+   |--------+------------------+----------+--------------------|
+   | male   | pants            | waist    | weight             |
+   | male   | pants            | waist    | BIA                |
+   | male   | pants            | waist    | bust               |
+   | male   | pants            | waist    | waist              |
+   | male   | pants            | waist    | topbelly           |
+   | male   | pants            | waist    | thigh              |
+   | male   | pants            | waist    | BMI                |
+   | male   | pants            | waist    | BBI                |
+   | male   | pants            | waist    | waist_height_ratio |
+   | male   | pants            | waist    | Ponderal_index     |
+   |--------+------------------+----------+--------------------|
+   | female | jacket           | bust     | weight             |
+   | female | jacket           | bust     | bust               |
+   | female | jacket           | bust     | topbelly           |
+   | female | jacket           | bust     | BMI                |
+   | female | jacket           | bust     | waist_height_ratio |
+   | female | jacket           | bust     | Ponderal_index     |
+   | female | jacket           | bust     | BIA                |
+   |--------+------------------+----------+--------------------|
+   | female | jacket           | topbelly | weight             |
+   | female | jacket           | topbelly | bust               |
+   | female | jacket           | topbelly | topbelly           |
+   | female | jacket           | topbelly | BMI                |
+   | female | jacket           | topbelly | BBI                |
+   | female | jacket           | topbelly | BIA                |
+   |--------+------------------+----------+--------------------|
+   | female | skirt            | hip      | weight             |
+   | female | skirt            | hip      | bust               |
+   | female | skirt            | hip      | topbelly           |
+   | female | skirt            | hip      | BMI                |
+   | female | skirt            | hip      | BBI                |
+   | female | skirt            | hip      | BIA                |
+   |--------+------------------+----------+--------------------|
+   | female | skirt            | waist    | weight             |
+   | female | skirt            | waist    | waist              |
+   | female | skirt            | waist    | BIA                |
+   | female | skirt            | waist    | hip                |
+   | female | skirt            | waist    | topbelly           |
+   | female | skirt            | waist    | BMI                |
+   | female | skirt            | waist    | BAI                |
+   | female | skirt            | waist    | BBI                |
+   | female | skirt            | waist    | Ponderal_index     |
+   |--------+------------------+----------+--------------------|
+** 1차 함수화
+   일단 여기까지 진행된 코드들을 모아서 ~size~ 라고 하는 간단한 함수를
+   만들어봅니다. 
+
+   #+BEGIN_SRC R
+     size <- function(data, rf1, rf2, gender, category,
+                      height,weight,bust,waist,topbelly,thigh,arm,leg) {
+
+         arg <- data.frame( height = height
+                          ,weight = weight
+                          ,bust = bust
+                          ,waist = waist
+                          ,topbelly = topbelly
+                          ,thigh = thigh
+                          ,arm = arm
+                          ,leg = leg
+                          ,BMI = weight / ( height / 100 ) ^ 2
+                          ,BBI = height - weight - bust
+                          ,waist_height_ratio = waist / height
+                          ,Ponderal_index = weight / ( height / 100 ) ^ 3
+                          ,BIA = ( 1.1 * weight ) - ( 128 * weight ^ 2 / height ^ 2 )
+                          ,ind = 2) # *
+
+         p_bust     <- predict(rf1, arg)
+         p_topbelly <- predict(rf2, arg)
+         result     <- data.frame(bust = p_bust, topbelly = p_topbelly)
+
+         return(result)
+     }
+   #+END_SRC
+
+   기존 ~jacket_m_size~ 함수보다 ~predict~ 에 전달하는 인자를 만들어내는 코드가
+   조금 더 깔끔해 지긴 했지만 이 함수역시 아직 기존 코드가 가지고 있는 다음
+   문제점들을 모두 가지고 있습니다. 
+
+   1. 이름은 ~size~ 함수 이지만 아직까지 ~jacket_m_size~ 에 대한 내용(bust,
+      topbelly) 밖에 처리할수 없음
+   2. 외부 전역변수(rf1, rf2)에 의존적임
+
+   어쨌든 지금은 기존과 동일한 결과가 나오는지를 먼저 확인하고 싶습니다.
+  
+   #+BEGIN_SRC R
+     # bust
+     rf1 <- randomForest( clothes_bust
+                  ~ height
+                  + weight
+                  + bust
+                  + waist
+                  + topbelly
+                  + BMI
+                  + BBI
+                  + waist_height_ratio
+                  + BIA
+                 ,data=data[ is_bestfit == T
+                            & clothes_category == 'jacket'
+                            & gender == 'male'
+                            & ind == T ]
+                 ,importance=T
+                 ,na.action=na.omit )
+
+     # topbelly
+     rf2 <- randomForest( clothes_topbelly
+                  ~ bust
+                  + weight
+                  + waist
+                  + topbelly
+                  + Ponderal_index
+                  + BIA
+                 ,data=data[ is_bestfit == T
+                            & clothes_category == 'jacket'
+                            & gender == 'male'
+                            & ind == T ]
+                 ,importance=T
+                 ,na.action=na.omit )
+   #+END_SRC
+
+   위에서 정리했던 내용을 바탕으로 ~rf1~ 과 ~rf2~ 변수를 위와 같이 생성해 준 뒤,
+   실행을 하면 다음과 같은 결과를 얻습니다.
+
+   #+BEGIN_EXAMPLE
+
+     > size( data, rf1, rf2, 'male', 'jacket',
+     +       183, 82, 102, 88, 85, 61, 64, 105 )
+           bust topbelly
+     1 101.0411  93.6454
+
+     > size( data, rf1, rf2, 'male', 'jacket',
+     +       175, 68, 92, 83, 80, 54, 62, 99 )
+           bust topbelly
+     1 98.25704 89.28921
+   #+END_EXAMPLE
+
+   아직 아름답지는 않지만, 적어도 지금까지 손대 부분이 결과에 영향을 끼친 부분은
+   없는것 같습니다.
+** randomForest 생성함수 
+   일단 가장 먼저 생각해 볼수 있는 개선은 randomForest 모델을 생성해 주는 함수를
+   작성하는 일입니다. 기존 코드에서 각각의 모델을 생성하는 코드를 매번 적어주는
+   대신에, 모델을 생성해주는 함수를 작성하고 필요할때마다 그 함수를 호출하면
+   기존 코드에서 8번이나 반복되어있는 모델의 생성 코드를 제거할 수 있을 것
+   같습니다. \\
+
+   부수적으로 모델을 생성해주는 함수를 만들면 분류(Y)에 따른 설명변수의 구성이
+   변경되더라도 코드를 수정하지 않고 결과를 확인할수 있기때문에 코드가 좀 더
+   유연해지는 효과도 기대할 수 있습니다.\\
+
+   이 문제를 좀 더 분석해 보도록 하겠습니다.
+
+*** dynamic formula evaluation 
+	다시한번 모듈을 만드는 코드를 살펴봅시다. 
+
+	#+BEGIN_SRC R
+      # male jacket - bust
+      randomForest( clothes_bust
+                   ~ height
+                   + weight
+                   + bust
+                   + waist
+                   + topbelly
+                   + BMI
+                   + BBI
+                   + waist_height_ratio
+                   + BIA
+                  ,data=data[ is_bestfit == T
+                             & clothes_category == 'jacket'
+                             & gender == 'male'
+                             & ind == T ]
+                  ,importance=T
+                  ,na.action=na.omit )
+   #+END_SRC
+
+   우선 우리는 ~clothes_bust ~ height + weight + bust + waist + topbelly + BMI +
+   BBI + waist_height_ratio + BIA~ 이 수식을 인자화 할수 있는 방법을
+   고민해야합니다. \\
+
+   검색을 해본 결과 [[http://stackoverflow.com/questions/8121542/r-specifying-variable-name-in-function-parameter-for-a-function-of-general-uni][비슷한 고민을 하고 있는 사람]]을 찾았습니다. R 기본함수
+   [[https://stat.ethz.ch/R-manual/R-devel/library/stats/html/formula.html][formula]] 는 '문자열'을 인자로 받아 수식형으로 변환해 줍니다. 즉 벡터로
+   전달받은 설명변수와 분류를 잘 조합해서 문자열로 만들면 문제가 해결될 것
+   같습니다.
+
+   #+BEGIN_SRC R
+     # 분류(Y)
+     y        <- 'clothes_bust'
+     # 설명변수들
+     features <-  c('height' ,'weight' ,'bust' ,'waist' ,'topbelly' ,'BMI' ,'BBI' ,'waist_height_ratio' ,'BIA')
+
+     # 설명변수들을 ' + ' 으로 묶어준다.
+     x <- paste(features, collapse =' + ')
+
+     # 분류와 설명변수들을 ' ~ ' 으로 묶어준다.
+     frm <- paste(y, x, sep=' ~ ')
+
+     identical(
+         formula("clothes_bust ~ height + weight + bust + waist + topbelly + BMI + BBI + waist_height_ratio + BIA")
+        ,formula(frm) )
+
+     # [1] TRUE
+   #+END_SRC
+
+   기본함수 [[https://stat.ethz.ch/R-manual/R-devel/library/base/html/paste.html][paste]] 는 ~collapse~ 속성을 부여하면 벡터를 구분자 문자로 묶어줍니다. 
+   위 코드는 설명변수들을 +로 묶고 분류와 설명변수를 ~로 묶어 *R 수식형식* 의
+   문자열을 만들 뒤 그 문자열을 실재 *수식* 으로 변환시키고 그 결과가 문자열을
+   수식화 한것과 다르지 않음을 보여주고 있습니다. 
+
+*** parameter 
+
+	[[#sec:fit-model][적합모델]]에서 정리한 표를 코드 실행에서 *인자* 로 처리합니다. 이렇게 되면
+	기존 코드에서 '코드'에 일부분이었던 영역이 '자료'의 일부분으로 변경되기
+	때문에 훨씬 유연하게 '코드'를 호출 할 수 있는 길이 열립니다. 
+
+	#+BEGIN_EXAMPLE R
+      parameter <- fread('parameter.csv', stringsAsFactors = F)
+	#+END_EXAMPLE
+
+	~data.table~ 에서 제공하는 ~fread~ 함수는 ~read.csv~ 함수와 유사하지만
+	결과를 data.table로 자동 변환해 줍니다.
+
+*** rf_factory
+
+	지금까지 고민했던 문제를 잘 조합하면 아래와 같이 ~rf_factory~ 라는 함수를
+	만들 수 있습니다. 
+
+	#+BEGIN_SRC R
+      rf_factory <- function( data, lookup, gender, category, guess ) {
+
+          y <- paste('clothes_', 'bust', sep='')
+          x <- paste( lookup[gender == gender & clothes_category == category & guess == guess]$parameter, collapse =' + ')
+
+          frm <- formula( paste(y, x, sep=' ~ ') )
+
+
+          rf <- randomForest(
+              frm
+             ,data=data[ is_bestfit == T
+						& clothes_category == category
+						& gender == gender
+						& ind == T ]
+             ,importance=T
+             ,na.action=na.omit )
+    
+          return(rf)
+      }
+	#+END_SRC
+
+	이 함수는 전체 자료(data)와 자료의 적합과 관련된 정보를 담고 있는
+	인자(lookup)을 입력받고 '성별','종류','분류'를 지정하면 지정된 자료로 적합된
+	randomForest 를 돌려줍니다. 사용 예는 아래와 같습니다.
+
+	#+BEGIN_EXAMPLE
+      > rf_factory(data, parameter, 'male','jacket', 'bust')
+      Call:
+       randomForest(formula = frm, data = data[is_bestfit == T & clothes_category ==      category & gender == gender & ind == T], importance = T,      na.action = na.omit) 
+                     Type of random forest: regression
+                           Number of trees: 500
+      No. of variables tried at each split: 3
+
+                Mean of squared residuals: 221.5875
+                          % Var explained: 11.04
+	#+END_EXAMPLE
+** 2차 함수화
+   다시한번 ~size~ 함수를 작성해 봅니다. ~rf_factory~ 함수에서 ~parameter~ 를
+   활용한 방법을 차용해서 인자로 받은 성별과, 종류에 따른 모델을 ~rf_factory~ 를
+   통해서 생성하고 돌려받은 결과의 이름역시 ~parameter~ 를 이용해서 적절하게
+   돌려 주도록 개선되었습니다.
+
+   #+BEGIN_SRC R
+     size <- function(data, parameter, gender, category,
+                      height,weight,bust,waist,topbelly,thigh,arm,leg) {
+
+         arg <- data.frame( height = height
+                          ,weight = weight
+                          ,bust = bust
+                          ,waist = waist
+                          ,topbelly = topbelly
+                          ,thigh = thigh
+                          ,arm = arm
+                          ,leg = leg
+                          ,BMI = weight / ( height / 100 ) ^ 2
+                          ,BBI = height - weight - bust
+                          ,waist_height_ratio = waist / height
+                          ,Ponderal_index = weight / ( height / 100 ) ^ 3
+                          ,BIA = ( 1.1 * weight ) - ( 128 * weight ^ 2 / height ^ 2 )
+                          ,ind = 2) # *
+
+         names      <- parameter[gender == gender & clothes_category == category ,unique(guess)]
+
+         x          <- predict(rf_factory( data, parameter, gender, category, names[1]), arg) # Ugly
+         y          <- predict(rf_factory( data, parameter, gender, category, names[2]), arg) # Ugly
+
+         result        <- c(x,y)
+         names(result) <- names
+
+         return(result)
+     }
+   #+END_SRC
+
+   이제 rf1, rf2 에 대한 외부 전역변수에 대한 의존성 문제와, ~size~ 함수가
+   범용적으로 사용될 수 없었던 문제가 모두다 해결되었습니다. 하지만 아직 문제가
+   많이 남아있습니다.
+
+** 모듈패턴
+
+   이제 우리 문제를 해결할 함수는 ~size~ 와 ~rf_factory~ 두개가 되었습니다. 이
+   코드를 작성한 나는 이 두 함수가 같이 협력해서 문제를 해결하고 있다는걸 알지만
+   사실 R의 [[http://adv-r.had.co.nz/Environments.html][환경(Environment)]] 상에서는 이 두 함수는 그냥 단지 존재하는 각각의
+   함수일 뿐입니다.\\
+
+   만약 다른 언어로 코딩을 해본 분들이라면, 이쯤에서 모두 한가지 단어를 떠
+   올리실꺼라고 생각합니다. 네 OOP 입니다. \\
+
+   R은 S3와 S4등 [[http://adv-r.had.co.nz/OO-essentials.html][다양한 방법]]으로 객체지향 문법을 지원하고 있습니다. 아마 이
+   문법들을 조금 더 자세하게 공부하면 제가 고민하고 있는 문제를 좀 더 아름답게
+   해결할 수 있을것 같은 기대감이 생깁니다. 하지만, 저는 S3나 S4와 같은 R에서
+   제공하는 OOP 문법말고 *모듈패턴* 이라는 방식으로 이 문제를 풀어보기로
+   했습니다. 제가 그렇게 결정한데는 몇가지 이유가 있습니다.
+
+   1. 저는 현재 S3나 S4를 *전혀* 모르며 사용해본 적이 없습니다. 그리고 잠깐
+      문서를 살펴본 결과 30분 미만을 공부해서 잘 사용할 수 있을것 같지가
+      않습니다. 당장 코드를 정리하고 싶긴 하지만 그렇다고 몇일씩 투자해서 새로운
+      문법을 따로 공부하고 싶지는 않습니다.
+   2. 모듈패턴도 제한적이지만 우리가 OOP에서 얻을수 있는 캡슐화나 정보은닉을
+      제공해줍니다.
+   3. 무엇보다도 모듈패턴은 단순하고 이미 잘 설명된 [[https://thebook.io/006723/Ch03/08/][문서]]가  있습니다.
+
+   *모듈* 이란 외부에서 접근할 수 없는 데이터와 그 데이터를 제어하기 위한 함수로
+   구성된 구조물이며 패턴이란 정형화된 코딩 기법을 말합니다.[1] 모듈 패턴은 비단
+   R에서만 사용되는것이 아니라 범용적인 프로그래밍 언어에서 널리 사용되는
+   방법이지만, R을 이용해서 모듈 패턴을 구현하는 방법에 대한 자세한 설명과
+   예시는 상술한 문서를 읽어보시면 됩니다.\\
+
+   지금까지 작성한 코드를 ~ocarina~ 라는 이름으로 모듈패턴으로 정리하면 다음과
+   같습니다. 
+
+   #+BEGIN_SRC R
+     ocarina <- function(data, lookup) {
+         data   <- data
+         lookup <- lookup
+
+         rf <- function( gender, category, guess ) {
+
+             y <- paste('clothes_', guess, sep='')
+             x <- paste( lookup[gender == gender & clothes_category == category & guess == guess]$parameter, collapse =' + ')
+
+             frm <- formula( paste(y, x, sep=' ~ ') )
+
+             set.seed(1234)
+             rf <- randomForest(
+                 frm
+                ,data=data[ is_bestfit == T
+                           & clothes_category == category
+                           & gender == gender
+                           & ind == T ]
+                ,importance=T
+                ,na.action=na.omit )
+        
+             return(rf)
+         }
+
+         size <- function( gender, category,
+                          height,weight,bust,waist,topbelly,thigh,arm,leg) {
+
+             arg <- data.frame( height = height
+                              ,weight = weight
+                              ,bust = bust
+                              ,waist = waist
+                              ,topbelly = topbelly
+                              ,thigh = thigh
+                              ,arm = arm
+                              ,leg = leg
+                              ,BMI = weight / ( height / 100 ) ^ 2
+                              ,BBI = height - weight - bust
+                              ,waist_height_ratio = waist / height
+                              ,Ponderal_index = weight / ( height / 100 ) ^ 3
+                              ,BIA = ( 1.1 * weight ) - ( 128 * weight ^ 2 / height ^ 2 )
+                              ,ind = 2) # *
+
+             names      <- lookup[gender == gender & clothes_category == category ,unique(guess)]
+
+             x          <- predict(rf( gender, category, names[1]), arg) # Ugly
+             y          <- predict(rf( gender, category, names[2]), arg) # Ugly
+
+             result        <- c(x,y)
+             names(result) <- names
+
+             return(result)
+         }
+    
+         return(list(rf = rf, size = size))
+     }
+   #+END_SRC
+
+   이렇게 작성된 모듈은 아래와 같은 방법으로 사용됩니다.
+
+   #+BEGIN_EXAMPLE
+     ocarina <- ocarina(data, parameter)
+     ocarina$rf('male','jacket', 'bust')
+     ocarina$size( 'male', 'jacket', 183, 82, 102, 88, 85, 61, 64, 105 )
+     ocarina$size( 'male', 'pants',  183, 82, 102, 88, 85, 61, 64, 105 )
+   #+END_EXAMPLE
+
+** 은닉, 초기화
+
+   책에서 소개하고 있지는 않지만 개인적으로 좀 더 궁리해본 결과 아래와 같은
+   몇가지 테크닉들을 발견했습니다.
+
+   #+BEGIN_SRC R
+     x <- function () {
+         models <- list();
+
+
+         a <- function() {
+             models
+         }
+
+         .b <- function() {
+             cat("wow\n")
+         }
+
+         .initialize <- function() {
+             a()
+         }
+
+         .initialize()
+         return(list(a = a))
+     }
+   #+END_SRC
+
+   1. 모듈내부에 작성된 함수라 하더라도 return 에 포함하지 않으면 함수는 외부로
+      노출되지 않습니다. 위 예제에서 함수 ~a~ 는 외부에서 호출가능하지만, ~.b~ ,
+      ~.initialize~ 는 외부에서 호출 할 수 없습니다.
+   2. 모듈 내부는 별도의 사전 영역(Lexical Scope)가 형성됩니다. 외부로 공개되지
+      않는 함수들도 내부에서는 호출이 가능합니다.
+   3. 이 함수의 호출이 OOP의 객체 생성이라고 볼때, 맴버 변수와 메소드의 생성뿐만
+      하니라 특정 동작을 수행할 수 있습니다. 위 예에서 ~.initialize~ 함수의
+      호출은 OOP의 ~생성자~ 와 비슷한 방식의 동작이 됩니다.
+** 캐쉬
+
+   이제 꽤 코드가 형식을 갖추고 그럴듯 하게 동작하는것 처럼 보입니다. 하지만
+   반복적으로 코드를 테스트하고, 적합하는 자료를 테스트자료 대신에 실제 자료를
+   적용시켜 본 결과 한가지 심각한 문제가 발견되었습니다. \\
+
+   지금의 코드는 구현상 매 회 사이즈를 예측할때마다 randomForest 모델 적합을
+   수행하는데 적합자료가 작을때는 크게 문제가 되지 않지만, 적합자료가 큰 경우
+   결과를 응답하는데 필요한 대부분의 시간을 모델을 적합하는데 사용하기 때문에
+   요청을 처리하는데 너무 오랜 시간이 걸린다는 점이었습니다. \\
+
+   또다시 이 문제를 해결하기 위해서 궁리하기 시작했습니다.
+
+*** cache
+	가장 먼저 떠오른 해결 방법은 모듈의 초기화 시점에 적절한 내부 변수에 필요한
+	모든 모델을 적합시킨뒤, 사이즈 예측시점마다 그 모델을 사용하도록 코드를
+	변경하는 것이었습니다. 
+*** list()
+	위 방법을 구현하는데 첫번째 고민은 여러개의 모델을 어떻게
+	저장하느냐였습니다. 먼저 ~data.table~ 이나 ~named vector~ 를 떠올렸지만 둘
+	다 지원하는 스칼라 형식이 아니기 때문에 저장할 수 없었습니다. 한참을
+	검색하던 중 보통 비교등을 위해서 여러 모델을 다뤄야 할때는 [[http://stackoverflow.com/questions/5599896/how-do-i-store-arrays-of-statistical-models][list 자료형을]]
+	쓴다는 사실을 알게 되었습니다. \\
+
+	사실 저는 지금까지 R에서 ~list~ 자료형이 왜 존재하는지 항상 의문이었습니다.
+	왜냐하면 보통 책에서는 list 자료형이 일반적인 프로그래밍 언어에서 제공하는
+	해쉬(Hash), 혹은 사전(Dictionary)와 유사한 자료형이라고 소개하고 있지만,
+	막상 list를 해쉬나 사전처럼 쓰는것은 경험상 너무 까다로웠고 오히려 ~named
+	vector~  가 해쉬와 사전처럼 동작하기 때문입니다. 하지만 이번 작업을 통해서
+	~list~ 자료형의 한가지 쓰임방식을 확실하게 알게 되었습니다. ~list~ 는 ~named
+	vector~ 와 다르게 값의 형식에 제약이 없고 중첩된(nested) 구조의 자료구조를
+	만들수 있는 차이가 있습니다.\\
+
+*** .initialize()
+
+	이제 생각한것을 코드로 표현해 보겠습니다. 
+
+	#+BEGIN_SRC R
+      ocarina <- function(data, parameter) {
+          data      <- data
+          parameter <- parameter
+          models    <- list()
+          lookup    <- data.frame()
+
+          .initialize <- function() {
+              lookup <<- unique( parameter[,.(gender, clothes_category, guess  ) ] )
+              models <<- alply( lookup
+                            ,1
+                            ,function(df) { .rf(df$gender,df$clothes_category, df$guess) } )
+          }
+
+          # ...
+
+          .initialize()
+          return(list(guess = guess, male = male))
+      }
+	#+END_SRC
+
+	~ocarina~ 모듈(객체)에 ~models~ 라는 리스트형의 맴버 변수를 추가했습니다.
+	그리고 생성시점에 호출되는 ~.initialize~ 함수에서는 기존에 사용했던
+	~parameter~ 에서 모델로 생성되어야 하는 목록을 ~lookup~ 이라는 변수에
+	저장합니다. 저장된 결과는 아래와 같습니다.
+
+	|--------+------------------+----------|
+	| gender | clothes_category | guess    |
+	|--------+------------------+----------|
+	| male   | jacket           | bust     |
+	| male   | jacket           | topbelly |
+	| male   | pants            | thight   |
+	| male   | pants            | waist    |
+	| female | jacket           | bust     |
+	| female | jacket           | topbelly |
+	| female | skirt            | hip      |
+	| female | skirt            | waist    |
+	|--------+------------------+----------|
+
+	우리는 이 ~data.frame~ 의 값을 인자로 우리가 만든 ~.rf~ (rf_factory) 함수를
+	호출해서 모델을 생성하고 그 결과를 ~models~ 리스트에 저장하고 싶습니다. 
+
+	#+BEGIN_SRC R
+      models <<- alply( lookup
+                    ,1
+                    ,function(df) { .rf(df$gender,df$clothes_category, df$guess) } )
+	#+END_SRC
+
+	[[https://cran.r-project.org/web/packages/plyr/index.html][plyr]] 의 ~alply~ 함수는 배열(a)를 받아서 리스트(l)로 돌려주는 함수입니다.
+	데이터 프레임을 인자로 받아서 리스트에 저장하고 싶다면 일감 ~dlply~ 함수가
+	떠오르겠지만, ~dlply~ 는 데이터 프레임을 나눠서 처리한뒤 리스트로 돌려주는데
+	적합한 함수이지 이 상황처럼 *모든 행을 처리해서 결과를 리스트로 돌려주는*
+	상황에는 적합하지 못합니다. ~plyr~ 모듈의 명명 방식때문에 처음에 쉽게 착각할
+	수 있는 내용입니다. 자세한 내용은 plyr의 배열(a) 계열 함수 대한 [[https://thebook.io/006723/Ch05/03/01/][설명]]을
+	을 참고하시기 바랍니다.\\
+
+	위 코드를 통해 ~lookup~ 데이터 프레임의 각각의 행은 ~.rf~ 함수의 인자로
+	전달된 뒤, 그 돌아오는 결과가 ~models~ 에 저장됩니다. 이 코드에서
+	배정연산자가 ~<<-~ 로 사용된 이유는 상위 영역(Scope)에서 지정된 변수의
+	내용을 변경하기 때문입니다. 이 코드가 실행 된 뒤, ~models~ 변수의 내용은
+	아래와 같습니다.
+
+	#+BEGIN_EXAMPLE
+      $`1`
+
+      Call:
+       randomForest(formula = frm, data = data[is_bestfit == T & clothes_category ==      category & gender == gender & ind == T], importance = T,      na.action = na.omit) 
+                     Type of random forest: regression
+                           Number of trees: 500
+      No. of variables tried at each split: 3
+
+                Mean of squared residuals: 218.4277
+                          % Var explained: 12.3
+
+      $`2`
+
+      Call:
+       randomForest(formula = frm, data = data[is_bestfit == T & clothes_category ==      category & gender == gender & ind == T], importance = T,      na.action = na.omit) 
+                     Type of random forest: regression
+                           Number of trees: 500
+      No. of variables tried at each split: 3
+
+                Mean of squared residuals: 7.155045
+                          % Var explained: 94.01
+      ...
+
+      $`8`
+
+      Call:
+       randomForest(formula = frm, data = data[is_bestfit == T & clothes_category ==      category & gender == gender & ind == T], importance = T,      na.action = na.omit) 
+                     Type of random forest: regression
+                           Number of trees: 500
+      No. of variables tried at each split: 3
+
+                Mean of squared residuals: 9.423527
+                          % Var explained: 75.07
+
+      attr(,"split_type")
+      [1] "array"
+      attr(,"split_labels")
+         gender clothes_category    guess
+      1:   male           jacket     bust
+      2:   male           jacket topbelly
+      3:   male            pants   thight
+      4:   male            pants    waist
+      5: female           jacket     bust
+      6: female           jacket topbelly
+      7: female            skirt      hip
+      8: female            skirt    waist
+	#+END_EXAMPLE
+
+	보는것 처럼 1부터 8까지의 키에 각각의 모델이 저장된 리스트 자료형임을 알 수
+	있습니다. 추가적으로 리스트의  속성을 통해 plyr을 통해 나눠진 자료의 형식과 원
+	자료의 라벨을 담은 ~split_type~, ~split_labels~ 값도 리스트에
+	속성(Attribute) 형식으로 저장되어있음을 볼 수 있습니다. 
+
+*** .model()
+
+	이제 필요한 모델은 모듈이 생성되는 시점에 모두 ~models~ 변수안에 적합되어
+	저장됩니다. 따라서 기존에 모델을 생성시키던 코드를 저장되어있는 모델을
+	찾아주는 코드로 변경해야합니다.
+
+	먼저 ~성별~, ~종류~, ~변수~ 인자를 받아서 모델을 찾아주는 함수 ~.model~ 을
+	다음과 같이 작성합니다.
+
+	#+BEGIN_SRC R
+      .model <- function( gender, category, guess ) {
+
+          idx <- which(lookup$gender == gender
+                       & lookup$clothes_category == category
+                       & lookup$guess == guess )
+
+          return(models[[ idx ]] )
+
+      }
+	#+END_SRC
+
+	우리는 ~lookup~ 변수를 초기화 시점에 생성했으며, ~models~ 는 이 변수를
+	참조해서 모델들을 적합시켰기 때문에 역으로 이 변수를 참조하면 ~models~
+	리스트에 저장된 모델의 키값을 찾을수 있다. 일반적으로 데이터 프레임에서
+	자료가 위치한 색인을 얻기 위해서는 [[https://stat.ethz.ch/R-manual/R-devel/library/base/html/which.html][which]] 함수를 사용하면 됩니다.\\
+
+	이제 기존에 ~.rf~ 를 직접 호출하던 함수를 아래와 같이 수정합니다. 
+
+	#+BEGIN_SRC R
+      guess <- function( gender, category,
+                       height,weight,bust,waist,topbelly,thigh,arm,leg) {
+
+          person <- data.frame( height = height
+                           ,weight = weight
+                           ,bust = bust
+                           ,waist = waist
+                           ,topbelly = topbelly
+                           ,thigh = thigh
+                           ,arm = arm
+                           ,leg = leg
+                           ,BMI = weight / ( height / 100 ) ^ 2
+                           ,BBI = height - weight - bust
+                           ,waist_height_ratio = waist / height
+                           ,Ponderal_index = weight / ( height / 100 ) ^ 3
+                           ,BIA = ( 1.1 * weight ) - ( 128 * weight ^ 2 / height ^ 2 )
+                           ,ind = 2) # *
+
+          names      <- parameter[gender == gender & clothes_category == category ,unique(guess)]
+          result     <- sapply(names, function(name) {
+              predict( .model( gender, category, name ) , person )
+          })
+          names(result) <- names
+
+          return(result)
+      }
+	#+END_SRC
+
+	~predict~ 함수에 첫번째 인자로 전달되던 모델을 ~.rf~ 에서 저장된 모듈을
+	가지고 오는 ~.model~ 함수로 변경되었습니다. 추가적으로 ~sapply~ 를 활용해서
+	기존 코드를 조금 더 개선시켰습니다.
+
+* Final
+  지금까지 설명한 내용이 모두 적용된 최종 코드는 아래와 같습니다.
+
+  #+BEGIN_SRC R
+    # List of packages for session
+    .packages = c("data.table", "plyr", "randomForest")
+
+    # Install CRAN packages (if not already installed)
+    .inst <- .packages %in% installed.packages()
+    if(length(.packages[!.inst]) > 0) install.packages(.packages[!.inst])
+
+    # Load packages into session 
+    suppressMessages({
+        lapply(.packages, require, character.only=TRUE)
+    })
+
+
+    ocarina <- function(data, parameter) {
+        data      <- data
+        parameter <- parameter
+        models    <- list()
+        lookup    <- data.frame()
+
+        .initialize <- function() {
+            lookup <<- unique( parameter[,.(gender, clothes_category, guess  ) ] )
+            models <<- alply( lookup
+                          ,1
+                          ,function(df) { .rf(df$gender,df$clothes_category, df$guess) } )
+        }
+
+        .rf <- function( gender, category, guess ) {
+
+            y <- paste('clothes_', guess, sep='')
+            x <- paste( parameter[gender == gender & clothes_category == category & guess == guess]$parameter, collapse =' + ')
+
+            frm <- formula( paste(y, x, sep=' ~ ') )
+
+            set.seed(1234)
+            rf <- randomForest(
+                frm
+               ,data=data[ is_bestfit == T
+                          & clothes_category == category
+                          & gender == gender
+                          & ind == T ]
+               ,importance=T
+               ,na.action=na.omit )
+
+            return(rf)
+        }
+
+        .model <- function( gender, category, guess ) {
+
+            idx <- which(lookup$gender == gender
+                         & lookup$clothes_category == category
+                         & lookup$guess == guess )
+
+            return(models[[ idx ]] )
+
+        }
+
+        guess <- function( gender, category,
+                         height,weight,bust,waist,topbelly,thigh,arm,leg) {
+
+            person <- data.frame( height = height
+                             ,weight = weight
+                             ,bust = bust
+                             ,waist = waist
+                             ,topbelly = topbelly
+                             ,thigh = thigh
+                             ,arm = arm
+                             ,leg = leg
+                             ,BMI = weight / ( height / 100 ) ^ 2
+                             ,BBI = height - weight - bust
+                             ,waist_height_ratio = waist / height
+                             ,Ponderal_index = weight / ( height / 100 ) ^ 3
+                             ,BIA = ( 1.1 * weight ) - ( 128 * weight ^ 2 / height ^ 2 )
+                             ,ind = 2) # *
+
+            names      <- parameter[gender == gender & clothes_category == category ,unique(guess)]
+            result     <- sapply(names, function(name) {
+                predict( .model( gender, category, name ) , person )
+            })
+            names(result) <- names
+
+            return(result)
+        }
+
+        .size <- function( g, height,weight,bust,waist,topbelly,thigh,arm,leg) {
+
+            categories <- unique( lookup[ gender == g, ]$clothes_category ) # Ugly
+
+            result <- list()
+            for( category in categories ) {
+                result[[ category ]] <- guess( g
+                                             ,category
+                                             ,height,weight,bust,waist,topbelly,thigh,arm,leg )
+            }
+
+            return(result)
+        }
+
+        male <- function( height,weight,bust,waist,topbelly,thigh,arm,leg ) {
+            return( .size('male', height,weight,bust,waist,topbelly,thigh,arm,leg ) )
+        }
+
+        female <- function( height,weight,bust,waist,topbelly,thigh,arm,leg ) {
+            return( .size('female', height,weight,bust,waist,topbelly,thigh,arm,leg ) )
+        }
+
+        .initialize()
+        return(list(guess = guess, male = male))
+    }
+  #+END_SRC
+
+  추가적으로 함수의 호출방식은 4가지 이지만 최종적으로 종단 사용자(End User)에게
+  필요한 사항은 남성,여성에 따른 옷의 신체 사이즈이기때문에 ~male~, ~female~
+  이라는 함수를 단축으로 제공하는 코드를 추가했습니다. \\
+
+  이 코드를 실행시킨 결과는 다음과 같습니다. 
+
+  #+BEGIN_EXAMPLE
+    > parameter <- fread('parameter.csv', stringsAsFactors = F)
+    > x <- ocarina(data, parameter)
+    > x$guess( 'male', 'jacket', 183, 82, 102, 88, 85, 61, 64, 105 )
+        bust topbelly 
+    101.1670  93.5627
+    > x$guess( 'male', 'pants',  183, 82, 102, 88, 85, 61, 64, 105 )
+      thight    waist 
+    66.43063 87.41593
+
+    > x$male(  183, 82, 102, 88, 85, 61, 64, 105 )
+    $jacket
+        bust topbelly 
+    101.1670  93.5627 
+
+    $pants
+      thight    waist 
+    66.43063 87.41593 
+  #+END_EXAMPLE
+
+  처음 전달받았던 500줄이 넘는 코드를 100줄 미만으로 정리했고, 코드를 읽는
+  사람이 구조를 파악하기 쉽도록 구조화 했으며, 좀 더 나은 유연성과 성능을
+  제공할 수 있도록 코드를 개선했습니다.
+
+[1]: R을 이용한 데이터 처리 & 분석 실무 / 길벗 서민구 117p
