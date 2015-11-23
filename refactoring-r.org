@@ -18,9 +18,7 @@
 개인적인 기록을 위해서 정리한 내용입니다.
 #+END_ABSTRACT
 
-#+LATEX: \tableofcontents
-#+LATEX: \listoftables
-#+LATEX: \listoffigures
+#+TOC: headlines 2
 
 * Goal
   - 우리는 약 2만건의 의류대여 정보를 가지고 있습니다. 의류 대여정보에는
