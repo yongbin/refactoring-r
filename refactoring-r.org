@@ -36,7 +36,10 @@
 ** 전처리와 적합
    #+BEGIN_SRC R
      # 전처리
-     jacket_m<-query[(query$is_bestfit==1)&(query$clothes_category=="jacket")&(query$gender=="male"),]
+     jacket_m<-query[(query$is_bestfit==1)
+                     &(query$clothes_category=="jacket")
+                     &(query$gender=="male"),]
+
      jacket_m$height<-as.numeric(jacket_m$height)
      jacket_m$weight<-as.numeric(jacket_m$weight)
      jacket_m$bust<-as.numeric(jacket_m$bust)
@@ -52,12 +55,19 @@
      jacket_m$BIA<-(1.1*jacket_m$weight)-(128*jacket_m$weight^2/jacket_m$height^2)
 
      # 랜덤포레스트 적합
-     m_bust_rf<-randomForest(clothes_bust~height+weight+bust+waist+topbelly+BMI+BBI+waist_height_ratio+BIA,data=jacket_m[jacket_m$ind==1,],importance=T)
-     m_topbelly_rf<-randomForest(clothes_topbelly~bust+weight+waist+topbelly+Ponderal_index+BIA,data=jacket_m[jacket_m$ind==1,],importance=T)
+	 # 남성 가승
+     m_bust_rf<-randomForest(clothes_bust~height+weight+bust+waist
+                             +topbelly+BMI+BBI+waist_height_ratio+BIA
+                            ,data=jacket_m[jacket_m$ind==1,],importance=T)
 
-	 # ...
+	 # 남성 윗배
+     m_topbelly_rf<-randomForest(clothes_topbelly~bust+weight+waist
+                                 +topbelly+Ponderal_index+BIA
+                                ,data=jacket_m[jacket_m$ind==1,],importance=T)
+
+     # ...
      # 같은 방식으로 남자 pants, 여성 jacket, 여성 skirt 에 대한 코드가 이어짐
-	 # ...
+     # ...
    #+END_SRC
 
    남성,여성 각각의 상의, 하의 총 4가지 경우에 대해 위와같은 코드가
@@ -409,7 +419,8 @@
      # 분류(Y)
      y        <- 'clothes_bust'
      # 설명변수들
-     features <-  c('height' ,'weight' ,'bust' ,'waist' ,'topbelly' ,'BMI' ,'BBI' ,'waist_height_ratio' ,'BIA')
+     features <-  c('height', 'weight', 'bust', 'waist','topbelly',
+                    'BMI', 'BBI', 'waist_height_ratio', 'BIA')
 
      # 설명변수들을 ' + ' 으로 묶어준다.
      x <- paste(features, collapse =' + ')
@@ -418,7 +429,9 @@
      frm <- paste(y, x, sep=' ~ ')
 
      identical(
-         formula("clothes_bust ~ height + weight + bust + waist + topbelly + BMI + BBI + waist_height_ratio + BIA")
+         formula(paste("clothes_bust ~ height + weight + bust",
+                       " + waist + topbelly + BMI + BBI",
+                       " + waist_height_ratio + BIA"))
         ,formula(frm) )
 
      # [1] TRUE
@@ -451,7 +464,9 @@
       rf_factory <- function( data, lookup, gender, category, guess ) {
 
           y <- paste('clothes_', 'bust', sep='')
-          x <- paste( lookup[gender == gender & clothes_category == category & guess == guess]$parameter, collapse =' + ')
+          x <- paste( lookup[gender == gender
+                             & clothes_category == category
+                             & guess == guess]$parameter, collapse =' + ')
 
           frm <- formula( paste(y, x, sep=' ~ ') )
 
@@ -459,12 +474,12 @@
           rf <- randomForest(
               frm
              ,data=data[ is_bestfit == T
-						& clothes_category == category
-						& gender == gender
-						& ind == T ]
+                        & clothes_category == category
+                        & gender == gender
+                        & ind == T ]
              ,importance=T
              ,na.action=na.omit )
-    
+
           return(rf)
       }
 	#+END_SRC
@@ -475,8 +490,16 @@
 
 	#+BEGIN_EXAMPLE
       > rf_factory(data, parameter, 'male','jacket', 'bust')
+
       Call:
-       randomForest(formula = frm, data = data[is_bestfit == T & clothes_category ==      category & gender == gender & ind == T], importance = T,      na.action = na.omit) 
+       randomForest(formula = frm,
+                    data = data[is_bestfit == T
+                                 & clothes_category == category
+                                 & gender == gender
+                                 & ind == T],
+                    importance = T,
+                    na.action = na.omit)
+
                      Type of random forest: regression
                            Number of trees: 500
       No. of variables tried at each split: 3
@@ -566,7 +589,9 @@
          rf <- function( gender, category, guess ) {
 
              y <- paste('clothes_', guess, sep='')
-             x <- paste( lookup[gender == gender & clothes_category == category & guess == guess]$parameter, collapse =' + ')
+             x <- paste( lookup[gender == gender
+                                & clothes_category == category
+                                & guess == guess]$parameter, collapse =' + ')
 
              frm <- formula( paste(y, x, sep=' ~ ') )
 
@@ -579,7 +604,7 @@
                            & ind == T ]
                 ,importance=T
                 ,na.action=na.omit )
-        
+
              return(rf)
          }
 
@@ -611,7 +636,7 @@
 
              return(result)
          }
-    
+
          return(list(rf = rf, size = size))
      }
    #+END_SRC
@@ -763,7 +788,14 @@
       $`1`
 
       Call:
-       randomForest(formula = frm, data = data[is_bestfit == T & clothes_category ==      category & gender == gender & ind == T], importance = T,      na.action = na.omit) 
+       randomForest(formula = frm,
+                      data = data[is_bestfit == T
+                           & clothes_category == category
+                           & gender == gender
+                           & ind == T],
+                      importance = T,
+                      na.action = na.omit)
+
                      Type of random forest: regression
                            Number of trees: 500
       No. of variables tried at each split: 3
@@ -774,7 +806,13 @@
       $`2`
 
       Call:
-       randomForest(formula = frm, data = data[is_bestfit == T & clothes_category ==      category & gender == gender & ind == T], importance = T,      na.action = na.omit) 
+       randomForest(formula = frm,
+                      data = data[is_bestfit == T
+                          & clothes_category == category
+                          & gender == gender
+                          & ind == T],
+                      importance = T,
+                      na.action = na.omit)
                      Type of random forest: regression
                            Number of trees: 500
       No. of variables tried at each split: 3
@@ -786,7 +824,13 @@
       $`8`
 
       Call:
-       randomForest(formula = frm, data = data[is_bestfit == T & clothes_category ==      category & gender == gender & ind == T], importance = T,      na.action = na.omit) 
+       randomForest(formula = frm,
+                      data = data[is_bestfit == T
+                           & clothes_category == category
+                           & gender == gender
+                           & ind == T],
+                      importance = T,
+                      na.action = na.omit)
                      Type of random forest: regression
                            Number of trees: 500
       No. of variables tried at each split: 3
@@ -907,7 +951,9 @@
         .rf <- function( gender, category, guess ) {
 
             y <- paste('clothes_', guess, sep='')
-            x <- paste( parameter[gender == gender & clothes_category == category & guess == guess]$parameter, collapse =' + ')
+            x <- paste( parameter[gender == gender
+                                  & clothes_category == category
+                                  & guess == guess]$parameter, collapse =' + ')
 
             frm <- formula( paste(y, x, sep=' ~ ') )
 
