@@ -163,12 +163,6 @@
    기능들도 제공하는 멋진 모듈입니다. 개인적으로 10분이상 들여다 봐야할 자료는
    정신건강을 위해서 읽어오는 부분에서 귀찮더라도 꼭 data.table로 처리합니다.
 
-   #+BEGIN_EXAMPLE
-
-   data.table과 data.table 차이
-
-   #+END_EXAMPLE
-
 ** 적합모델
    :PROPERTIES:
    :CUSTOM_ID: sec:fit-model
