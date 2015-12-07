@@ -10,14 +10,30 @@
 정말로 참기 힘들어 합니다. 물론 개인적인 취향과 별개로 영역을 명확하게 구분하고
 의도를 잘 들어낸 가독성(redability) 높은 코드는 읽기쉽고, 구조적으로 서로
 영향받는 영역이 적기때문에 문제가 발생할 가능성이 적습니다. 또한 이런 코드는
-반복적으로 재사용하거나 새로운 기능을 추가하기에도 유리합니다.\\
+반복적으로 재사용하거나, 새로운 기능을 추가하기에도 유리합니다.\\
 
  이 글은 제가 통계학을 전공하신분과 협업하는 과정에서 전달받은 적합, 예측을
-수행하는 R 코드를 정리하고 좀 더 손 쉽게 재사용 할 수 있는 형태로 개선시킨
-과정을 기록한 것입니다.
+수행하는 R 코드를 기존의 동작을 그대로 유지한 상태로 좀 더 손 쉽게 구조적으로
+재사용하기 쉬운 형태로 개선시키면서 만났던 문제점과 그 문제를 나름대로 해결해
+나가는 과정을 기록한 내용입니다.\\
 #+END_ABSTRACT
 
+#+LaTeX: \pagebreak
+
+#+BEGIN_EXAMPLE
+   Copyright (c)  2015 Yongbin Yu.
+  Permission is granted to copy, distribute and/or modify this document under the
+  terms of the GNU Free Documentation License, Version 1.3 or any later version
+  published by the Free Software Foundation; with no Invariant Sections, no
+  Front-Cover Texts, and no Back-Cover Texts. A copy of the license is included
+  in the section entitled "GNU Free Documentation License".
+#+END_EXAMPLE
+
+#+LaTeX: \pagebreak
+
 #+TOC: headlines 3
+
+#+LaTeX: \pagebreak
 
 * Background
 
@@ -1109,13 +1125,15 @@
   비슷한 고민을 하시는 분들에게 조금의 도움이 되었기를 바랍니다.\\
 
   이 문서는 Emacs의 orgmode를 통해서 작성되었습니다. 문서의 전체내용은 Github에
-  AGPL 저작권하에 공개되어있습니다. 문서에서 다루고 있는 자료와 분석 코드는 별도의
+  [[http://korea.gnu.org/people/chsong/copyleft/fdl.ko.html][GFDL]]로 공개되어있습니다. 문서에서 다루고 있는 자료와 분석 코드는 별도의
   사용권 고지하에 추후 공개할 예정입니다.
 
 * Thanks
 
   이 문서를 완성하는데 아래와 같이 많은 분들이 도움을 주셨습니다.
 
+  - *조성재* : 베타리딩을 진행해 주셨고 문서 본문의 오탈자와 문서 라이센스의
+    오기등을 바로잡아주셨습니다.
   - *이철희* : 베타리딩을 진행해 주셨고 전체적인 글의 내용과 목적등에 대한
     의견을 보내주셨습니다. 특히 수식 재사용과 관련해서는 [[http://www.r-bloggers.com/using-the-update-function-during-variable-selection/][update()]] 함수를
     추천해주셨습니다.
