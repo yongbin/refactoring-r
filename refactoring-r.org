@@ -1110,7 +1110,7 @@
   비슷한 고민을 하시는 분들에게 조금의 도움이 되었기를 바랍니다.\\
 
   이 문서는 Emacs의 orgmode를 통해서 작성되었습니다. 문서의 전체내용은 Github에
-  AGPL 저작권하에 공개되어있습니다. 문서에서 다루고 있는 자료와 분석 코드는 별도의
+  [[http://korea.gnu.org/people/chsong/copyleft/fdl.ko.html][GFDL]]로 공개되어있습니다. 문서에서 다루고 있는 자료와 분석 코드는 별도의
   사용권 고지하에 추후 공개할 예정입니다.
 
 * Thanks
