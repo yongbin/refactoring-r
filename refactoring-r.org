@@ -1,4 +1,8 @@
 #+TITLE: 모듈패턴을 이용한 적합/예측 R 코드 리펙토링
+#+AUTHOR: 유용빈(Yongbin Yu)
+#+DATE: 2015-12-07
+#+EMAIL: yongbin.yu@gmail.com
+#+LANGUAGE: ko
 #+LATEX_CMD: xelatex
 #+LaTeX_HEADER: \usepackage{kotex}
 #+LaTeX_HEADER: \usepackage{a4wide}
